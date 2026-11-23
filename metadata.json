@@ -1,0 +1,6 @@
+{
+  "name": "FurrowFlow",
+  "description": "Farm activity scheduler for plant watering, mulching, pruning, stepped fish tank irrigation cycles, and daily crew task sign-offs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

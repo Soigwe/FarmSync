@@ -1,0 +1,490 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user workspace pointer and display name for an authenticated farmer.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "activeFarmId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "displayName", "activeFarmId", "createdAt", "updatedAt"]
+    },
+    "Farm": {
+      "title": "Farm",
+      "description": "Root farm operations workspace owning crops, fish tanks, crew members, and schedules.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "volumeUnit": {
+          "type": "string",
+          "enum": ["L", "gal"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "name", "location", "volumeUnit", "createdAt", "updatedAt"]
+    },
+    "FarmMember": {
+      "title": "FarmMember",
+      "description": "Assigned crew member within a farm workspace.",
+      "type": "object",
+      "properties": {
+        "farmId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "role": {
+          "type": "string",
+          "enum": ["manager", "worker"]
+        },
+        "specialty": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "linkedUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["farmId", "ownerId", "name", "role", "specialty", "linkedUid", "active", "createdAt", "updatedAt"]
+    },
+    "PlantSchedule": {
+      "title": "PlantSchedule",
+      "description": "Crop bed or plant with recurring watering, mulching, and pruning cadences and crew assignments.",
+      "type": "object",
+      "properties": {
+        "farmId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "zone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "category": {
+          "type": "string",
+          "enum": ["vegetable", "herb", "fruit", "orchard", "nursery"]
+        },
+        "waterEnabled": { "type": "boolean" },
+        "waterEveryDays": { "type": "integer" },
+        "lastWateredDate": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^(|[0-9]{4}-[0-9]{2}-[0-9]{2})$"
+        },
+        "waterAssigneeId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "waterAssigneeUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "mulchEnabled": { "type": "boolean" },
+        "mulchEveryDays": { "type": "integer" },
+        "lastMulchedDate": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^(|[0-9]{4}-[0-9]{2}-[0-9]{2})$"
+        },
+        "mulchAssigneeId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "mulchAssigneeUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "pruneEnabled": { "type": "boolean" },
+        "pruneEveryDays": { "type": "integer" },
+        "lastPrunedDate": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^(|[0-9]{4}-[0-9]{2}-[0-9]{2})$"
+        },
+        "pruneAssigneeId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "pruneAssigneeUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "receivesFishWater": { "type": "boolean" },
+        "notes": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "farmId", "ownerId", "name", "zone", "category",
+        "waterEnabled", "waterEveryDays", "lastWateredDate", "waterAssigneeId", "waterAssigneeUid",
+        "mulchEnabled", "mulchEveryDays", "lastMulchedDate", "mulchAssigneeId", "mulchAssigneeUid",
+        "pruneEnabled", "pruneEveryDays", "lastPrunedDate", "pruneAssigneeId", "pruneAssigneeUid",
+        "receivesFishWater", "notes", "createdAt", "updatedAt"
+      ]
+    },
+    "FishTank": {
+      "title": "FishTank",
+      "description": "Aquaculture fish tank following the 1/4, 2/4, 3/4 stepped drawdown cycle for crop irrigation.",
+      "type": "object",
+      "properties": {
+        "farmId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "species": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "capacityLiters": { "type": "integer" },
+        "intervalDays": { "type": "integer" },
+        "currentStage": {
+          "type": "integer",
+          "enum": [1, 2, 3]
+        },
+        "nextDrawdownDate": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "lastDrawdownDate": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^(|[0-9]{4}-[0-9]{2}-[0-9]{2})$"
+        },
+        "assigneeId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "assigneeUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "irrigationBedIds": {
+          "type": "array",
+          "description": "Up to 10 plant document IDs irrigated with discharged fish tank water."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "farmId", "ownerId", "name", "species", "capacityLiters", "intervalDays",
+        "currentStage", "nextDrawdownDate", "lastDrawdownDate",
+        "assigneeId", "assigneeUid", "irrigationBedIds", "notes", "createdAt", "updatedAt"
+      ]
+    },
+    "CustomTask": {
+      "title": "CustomTask",
+      "description": "Ad-hoc or recurring custom farm activity assigned to a team member.",
+      "type": "object",
+      "properties": {
+        "farmId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "category": {
+          "type": "string",
+          "enum": ["water", "mulch", "prune", "fish_tank", "harvest", "maintenance"]
+        },
+        "dueDate": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "recurrenceDays": { "type": "integer" },
+        "assigneeId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "assigneeUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "completed"]
+        },
+        "completedDate": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^(|[0-9]{4}-[0-9]{2}-[0-9]{2})$"
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "farmId", "ownerId", "title", "category", "dueDate", "recurrenceDays",
+        "assigneeId", "assigneeUid", "status", "completedDate", "notes", "createdAt", "updatedAt"
+      ]
+    },
+    "CompletionLog": {
+      "title": "CompletionLog",
+      "description": "Immutable daily task completion record with assignee, sign-off user, and effluent irrigation metrics.",
+      "type": "object",
+      "properties": {
+        "farmId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "dateKey": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "taskType": {
+          "type": "string",
+          "enum": ["water", "mulch", "prune", "fish_tank", "custom"]
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sourceTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "assignedMemberId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "assignedMemberName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "assignedUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "completedByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "completedByName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "status": {
+          "type": "string",
+          "enum": ["done"]
+        },
+        "waterVolumeLiters": { "type": "integer" },
+        "tankStage": {
+          "type": "string",
+          "enum": ["", "1/4", "2/4", "3/4"]
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "farmId", "ownerId", "dateKey", "taskType", "sourceId", "sourceTitle",
+        "assignedMemberId", "assignedMemberName", "assignedUid",
+        "completedByUid", "completedByName", "status",
+        "waterVolumeLiters", "tankStage", "notes", "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private authenticated user profile storing active farm reference."
+    },
+    "/farms/{farmId}": {
+      "schema": { "$ref": "#/entities/Farm" },
+      "description": "Farm workspace root document."
+    },
+    "/farms/{farmId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/FarmMember" },
+      "description": "Crew members assignable to farm tasks."
+    },
+    "/farms/{farmId}/plants/{plantId}": {
+      "schema": { "$ref": "#/entities/PlantSchedule" },
+      "description": "Plant and crop bed schedules for watering, mulching, and pruning."
+    },
+    "/farms/{farmId}/fishTanks/{tankId}": {
+      "schema": { "$ref": "#/entities/FishTank" },
+      "description": "Aquaculture fish tanks with 1/4, 2/4, 3/4 stepped drawdown irrigation cycles."
+    },
+    "/farms/{farmId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/CustomTask" },
+      "description": "Custom one-off or recurring farm tasks."
+    },
+    "/farms/{farmId}/completions/{completionId}": {
+      "schema": { "$ref": "#/entities/CompletionLog" },
+      "description": "Immutable daily task completion sign-off ledger."
+    }
+  }
+}
