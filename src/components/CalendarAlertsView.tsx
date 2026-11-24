@@ -3,13 +3,16 @@ import {
   Bell,
   BellOff,
   Check,
+  Clock,
   Droplets,
   Fish,
   Layers,
+  PawPrint,
   Scissors,
   Wrench,
 } from 'lucide-react';
 import type {
+  AnimalTask,
   CompletionLog,
   CustomTask,
   Farm,
@@ -30,6 +33,7 @@ interface CalendarAlertsViewProps {
   todayDate: string;
   plants: PlantSchedule[];
   fishTanks: FishTank[];
+  animalTasks: AnimalTask[];
   tasks: CustomTask[];
   members: FarmMember[];
   completions: CompletionLog[];
@@ -41,13 +45,14 @@ export function CalendarAlertsView({
   todayDate,
   plants,
   fishTanks,
+  animalTasks,
   tasks,
   members,
   completions,
   onJumpToDate,
 }: CalendarAlertsViewProps) {
   const [memberFilter, setMemberFilter] = useState('all');
-  const [typeFilter, setTypeFilter] = useState<'all' | 'fish_tank' | 'water' | 'mulch' | 'prune' | 'custom'>('all');
+  const [areaFilter, setAreaFilter] = useState<'all' | 'plants' | 'animals' | 'general'>('all');
   const [notifStatus, setNotifStatus] = useState<string>(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
     return Notification.permission;
@@ -63,19 +68,20 @@ export function CalendarAlertsView({
         todayDate,
         plants,
         fishTanks,
+        animalTasks,
         tasks,
         members,
         completions,
         volumeUnit: farm.volumeUnit,
       }).filter((a) => {
         if (memberFilter !== 'all' && a.assigneeId !== memberFilter) return false;
-        if (typeFilter !== 'all' && a.taskType !== typeFilter) return false;
+        if (areaFilter !== 'all' && a.farmArea !== areaFilter) return false;
         return true;
       });
       arr.push({ dateKey, activities: list });
     }
     return arr;
-  }, [todayDate, plants, fishTanks, tasks, members, completions, farm.volumeUnit, memberFilter, typeFilter]);
+  }, [todayDate, plants, fishTanks, animalTasks, tasks, members, completions, farm.volumeUnit, memberFilter, areaFilter]);
 
   const todayAlerts = useMemo(
     () => days14[0]?.activities.filter((a) => !a.isDoneForDay) || [],
@@ -92,7 +98,7 @@ export function CalendarAlertsView({
       setNotifStatus(perm);
       if (perm === 'granted') {
         const count = todayAlerts.length;
-        new Notification('FurrowFlow Farm Alerts Enabled', {
+        new Notification('FarmSync Farm Alerts Enabled', {
           body:
             count > 0
               ? `You have ${count} farm activities due today on ${farm.name}.`
@@ -110,24 +116,26 @@ export function CalendarAlertsView({
   const handleSendSummaryTest = () => {
     const overdue = todayAlerts.filter((a) => a.urgency === 'overdue').length;
     const tankDue = todayAlerts.filter((a) => a.taskType === 'fish_tank').length;
-    const summary = `${todayAlerts.length} activities pending today (${overdue} overdue, ${tankDue} fish tank drawdown${tankDue === 1 ? '' : 's'}).`;
+    const summary = `${todayAlerts.length} activities pending today (${overdue} overdue, ${tankDue} fish tank water change${tankDue === 1 ? '' : 's'}).`;
 
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       try {
-        new Notification(`${farm.name} — Daily Dispatch`, { body: summary });
-        setTestNotice(`Notification dispatched: ${summary}`);
+        new Notification(`${farm.name} — Daily Plan`, { body: summary });
+        setTestNotice(`Notification sent: ${summary}`);
         return;
       } catch {
         // Fallback to in-app confirmation
       }
     }
-    setTestNotice(`Daily Dispatch Preview: ${summary}`);
+    setTestNotice(`Daily Reminder Preview: ${summary}`);
   };
 
   const renderIcon = (taskType: ScheduledActivity['taskType']) => {
     switch (taskType) {
       case 'fish_tank':
         return <Fish className="w-3.5 h-3.5 text-[#0369A1] shrink-0" />;
+      case 'animal':
+        return <PawPrint className="w-3.5 h-3.5 text-[#B45309] shrink-0" />;
       case 'water':
         return <Droplets className="w-3.5 h-3.5 text-[#0284C7] shrink-0" />;
       case 'mulch':
@@ -145,11 +153,11 @@ export function CalendarAlertsView({
       <div className="bg-white border border-[#E2E8E5] rounded-xl p-6 flex flex-wrap items-start justify-between gap-5">
         <div className="max-w-2xl">
           <h2 className="font-display text-lg font-bold text-[#112119] tracking-tight">
-            14-Day Farm Calendar &amp; Reminder Alerts
+            2-Week Farm Plan &amp; Reminders
           </h2>
           <p className="text-xs text-[#5A6E64] mt-1 leading-relaxed">
-            Forecast every watering, mulching, pruning, and stepped 1/4 → 2/4 → 3/4 fish tank
-            irrigation day over the next two weeks. Click any date to jump into its sign-off sheet.
+            See every watering, mulching, pruning, and fish tank 1/4 → 2/4 → 3/4 water change
+            coming up over the next 14 days. Tap any day to open its task list.
           </p>
           {testNotice && (
             <p className="mt-3 text-xs font-medium text-[#14532D] bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg px-3 py-2">
@@ -197,7 +205,7 @@ export function CalendarAlertsView({
                 : 'bg-[#F2F5F3] text-[#3D5247] hover:bg-[#E5ECE8]'
             }`}
           >
-            All Crew
+            Everyone
           </button>
           {members
             .filter((m) => m.active)
@@ -220,20 +228,18 @@ export function CalendarAlertsView({
         <div className="flex items-center gap-1 bg-[#F2F5F3] p-1 rounded-lg overflow-x-auto">
           {(
             [
-              { id: 'all', label: 'All Types' },
-              { id: 'fish_tank', label: 'Fish Tank' },
-              { id: 'water', label: 'Watering' },
-              { id: 'mulch', label: 'Mulching' },
-              { id: 'prune', label: 'Pruning' },
-              { id: 'custom', label: 'Duties' },
+              { id: 'all', label: 'All Areas' },
+              { id: 'plants', label: 'Plants' },
+              { id: 'animals', label: 'Animal Farm' },
+              { id: 'general', label: 'Other' },
             ] as const
           ).map((opt) => (
             <button
               key={opt.id}
               type="button"
-              onClick={() => setTypeFilter(opt.id)}
+              onClick={() => setAreaFilter(opt.id)}
               className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                typeFilter === opt.id
+                areaFilter === opt.id
                   ? 'bg-white text-[#112119] shadow-xs'
                   : 'text-[#52665C] hover:text-[#112119]'
               }`}
@@ -312,19 +318,24 @@ export function CalendarAlertsView({
                             {a.urgency === 'overdue' && !a.isDoneForDay && (
                               <span className="text-[#B91C1C] font-medium">
                                 {' '}
-                                · Overdue {a.daysOverdue}d
+                                · Late {a.daysOverdue}d
                               </span>
                             )}
                           </div>
                         </div>
                       </div>
 
-                      {a.isDoneForDay && (
+                      {a.isPendingConfirmation ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#B45309] shrink-0">
+                          <Clock className="w-3 h-3" />
+                          Pending
+                        </span>
+                      ) : a.isDoneForDay ? (
                         <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#15803D] shrink-0">
                           <Check className="w-3 h-3" />
                           Done
                         </span>
-                      )}
+                      ) : null}
                     </div>
                   ))}
                 </div>

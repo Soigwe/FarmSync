@@ -88,11 +88,12 @@ export function PlantsCareView({
       await onQuickLogPlantCare(
         {
           key: `${type}:${plant.id}:${todayDate}`,
+          farmArea: 'plants',
           taskType: type,
           sourceId: plant.id,
           title: `${verb} ${plant.name}`,
-          subtitle: 'Logged from Plants & Crop Care matrix',
-          zoneOrDetail: plant.zone,
+          subtitle: 'Logged from Plants page',
+          zoneOrDetail: `Plants · ${plant.zone}`,
           dueDate: todayDate,
           daysOverdue: 0,
           urgency: 'due_today',
@@ -100,6 +101,7 @@ export function PlantsCareView({
           assigneeName,
           assigneeUid,
           isDoneForDay: false,
+          isPendingConfirmation: false,
           cadenceLabel: '',
         },
         {
@@ -193,11 +195,11 @@ export function PlantsCareView({
         <div className="relative z-10 w-full p-6 flex flex-wrap items-end justify-between gap-4">
           <div className="max-w-2xl">
             <h2 className="font-display text-2xl font-bold text-white tracking-tight">
-              Plants &amp; Crop Care Schedules
+              Plants &amp; Crops
             </h2>
             <p className="text-sm text-white/85 mt-1.5 leading-relaxed">
-              Configure independent watering, mulching, and pruning cadences for every bed,
-              assign each duty to a crew member, and flag beds irrigated with fish tank effluent.
+              Set how often each plant bed needs watering, mulching, and pruning, choose who is in
+              charge of each job, and mark which beds use fish tank water.
             </p>
           </div>
           <button
@@ -219,7 +221,7 @@ export function PlantsCareView({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search plant name or zone…"
+            placeholder="Find a plant or plot…"
             className="w-full h-10 pl-9 pr-3 text-xs bg-[#F8FAF9] border border-[#DCE4DF] rounded-lg text-[#112119] placeholder:text-[#7A8E84] focus:outline-none focus:border-[#14532D]"
           />
         </div>
@@ -251,7 +253,7 @@ export function PlantsCareView({
                 : 'bg-white border-[#DCE4DF] text-[#4B5E55] hover:bg-[#F3F6F4]'
             }`}
           >
-            Fish-Water Irrigated Only
+            Uses Fish Water
           </button>
         </div>
       </div>

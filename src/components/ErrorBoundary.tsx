@@ -29,7 +29,7 @@ export class ErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
-    console.error('FurrowFlow ErrorBoundary caught error:', error, info);
+    console.error('FarmSync ErrorBoundary caught error:', error, info);
   }
 
   render() {

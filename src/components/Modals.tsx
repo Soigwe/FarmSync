@@ -1,19 +1,27 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
-import type {
-  CustomTask,
-  Farm,
-  FarmMember,
-  FishTank,
-  MemberRole,
-  PlantCategory,
-  PlantSchedule,
-  TaskCategory,
-  TankStage,
-  VolumeUnit,
+import {
+  ANIMAL_TASK_KIND_LABELS,
+  ANIMAL_TASK_PRESETS,
+  ANIMAL_TYPE_LABELS,
+  SCHEMA_LIMITS,
+  type AnimalGroup,
+  type AnimalTask,
+  type AnimalTaskKind,
+  type AnimalTaskPreset,
+  type AnimalType,
+  type CustomTask,
+  type Farm,
+  type FarmMember,
+  type FishTank,
+  type MemberRole,
+  type PlantCategory,
+  type PlantSchedule,
+  type TankStage,
+  type TaskCategory,
+  type VolumeUnit,
 } from '../types';
-import { SCHEMA_LIMITS } from '../types';
-import { getTodayDateKey } from '../utils/schedule';
+import { getTodayDateKey, sanitizeInviteCode } from '../utils/schedule';
 
 function ModalShell({
   title,
@@ -134,8 +142,8 @@ export function PlantModal({
 
   return (
     <ModalShell
-      title={initial ? 'Edit Plant / Crop Bed' : 'Add Plant / Crop Bed'}
-      subtitle="Configure watering, mulching, and pruning schedules and assign each task to a team member."
+      title={initial ? 'Edit Plant / Bed' : 'Add Plant / Bed'}
+      subtitle="Set how often to water, add mulch, and prune this plant, and choose who does each job."
       onClose={onClose}
     >
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
@@ -449,8 +457,8 @@ export function FishTankModal({
 
   return (
     <ModalShell
-      title={initial ? 'Edit Fish Tank Cycle' : 'Add Fish Tank'}
-      subtitle="Schedules progressive 1/4 → 2/4 → 3/4 water reductions routed directly to crop irrigation."
+      title={initial ? 'Edit Fish Tank' : 'Add Fish Tank'}
+      subtitle="Tracks 1/4 → 2/4 → 3/4 water changes every few days and routes the removed water to your plants."
       onClose={onClose}
     >
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
@@ -695,6 +703,7 @@ export function CustomTaskModal({
               <option value="mulch">Mulching</option>
               <option value="prune">Pruning</option>
               <option value="fish_tank">Fish Tank</option>
+              <option value="animal">Animal Farm</option>
               <option value="harvest">Harvest</option>
               <option value="maintenance">Maintenance</option>
             </select>
@@ -784,6 +793,7 @@ export function MemberModal({
     role: MemberRole;
     specialty: string;
     linkedUid?: string;
+    inviteCode?: string;
     active: boolean;
   }) => Promise<void>;
 }) {
@@ -804,6 +814,7 @@ export function MemberModal({
         role,
         specialty: specialty.trim(),
         linkedUid: initial?.linkedUid || '',
+        inviteCode: initial?.inviteCode || '',
         active,
       });
       onClose();
@@ -814,8 +825,8 @@ export function MemberModal({
 
   return (
     <ModalShell
-      title={initial ? 'Edit Crew Member' : 'Add Crew Member'}
-      subtitle="Assign farm activities to this person and track their daily completions."
+      title={initial ? 'Edit Person' : 'Add a Person'}
+      subtitle="Add a real farmhand or helper so you can assign daily tasks to them."
       onClose={onClose}
     >
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
@@ -827,7 +838,7 @@ export function MemberModal({
             maxLength={SCHEMA_LIMITS.NAME_MAX}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Ada Okafor"
+            placeholder="Enter person's name"
             className={inputCls}
           />
         </div>
@@ -839,18 +850,18 @@ export function MemberModal({
               onChange={(e) => setRole(e.target.value as MemberRole)}
               className={inputCls}
             >
-              <option value="worker">Field Worker</option>
+              <option value="worker">Farm Worker</option>
               <option value="manager">Farm Manager</option>
             </select>
           </div>
           <div>
-            <label className={labelCls}>Primary Focus / Specialty</label>
+            <label className={labelCls}>Main Work (optional)</label>
             <input
               type="text"
               maxLength={SCHEMA_LIMITS.SPECIALTY_MAX}
               value={specialty}
               onChange={(e) => setSpecialty(e.target.value)}
-              placeholder="e.g. Fish Tanks & Irrigation"
+              placeholder="e.g. Watering, Fish Tanks, Pruning"
               className={inputCls}
             />
           </div>
@@ -862,7 +873,7 @@ export function MemberModal({
             onChange={(e) => setActive(e.target.checked)}
             className="rounded border-[#94A3B8] text-[#14532D]"
           />
-          <span>Active on daily crew roster</span>
+          <span>Show on daily task list</span>
         </label>
         <div className="flex justify-end gap-2 pt-2">
           <button
@@ -877,7 +888,7 @@ export function MemberModal({
             disabled={saving}
             className="h-10 px-5 text-xs font-semibold text-white bg-[#14532D] hover:bg-[#0F3F22] disabled:opacity-60 rounded-lg cursor-pointer"
           >
-            {saving ? 'Saving…' : initial ? 'Save Member' : 'Add Member'}
+            {saving ? 'Saving…' : initial ? 'Save Person' : 'Add Person'}
           </button>
         </div>
       </form>
@@ -967,6 +978,521 @@ export function FarmSettingsModal({
             className="h-10 px-5 text-xs font-semibold text-white bg-[#14532D] hover:bg-[#0F3F22] disabled:opacity-60 rounded-lg cursor-pointer"
           >
             {saving ? 'Saving…' : 'Save Settings'}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// 6. Add / Edit Animal Group Modal (with Starter Task Presets)
+// -----------------------------------------------------------------------------
+export function AnimalGroupModal({
+  initial,
+  members,
+  onClose,
+  onSave,
+}: {
+  initial: AnimalGroup | null;
+  members: FarmMember[];
+  onClose: () => void;
+  onSave: (
+    data: Omit<AnimalGroup, 'id' | 'farmId' | 'ownerId' | 'createdAt' | 'updatedAt'> & {
+      id?: string;
+    },
+    starterTasks?: { presets: AnimalTaskPreset[]; assigneeId: string }
+  ) => Promise<void>;
+}) {
+  const [animalType, setAnimalType] = useState<AnimalType>(initial?.animalType || 'chicken');
+  const [name, setName] = useState(initial?.name || '');
+  const [count, setCount] = useState(initial?.count ?? 20);
+  const [housing, setHousing] = useState(initial?.housing || '');
+  const [notes, setNotes] = useState(initial?.notes || '');
+  const [defaultAssigneeId, setDefaultAssigneeId] = useState(members[0]?.id || '');
+  const [selectedPresetIdx, setSelectedPresetIdx] = useState<number[]>([0, 1]);
+  const [saving, setSaving] = useState(false);
+
+  const presets = ANIMAL_TASK_PRESETS[animalType] || [];
+
+  const handleTypeChange = (nextType: AnimalType) => {
+    setAnimalType(nextType);
+    const nextPresets = ANIMAL_TASK_PRESETS[nextType] || [];
+    setSelectedPresetIdx(nextPresets.map((_, idx) => idx));
+  };
+
+  const togglePreset = (idx: number) => {
+    setSelectedPresetIdx((prev) =>
+      prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
+    );
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      const chosenPresets = !initial
+        ? presets.filter((_, idx) => selectedPresetIdx.includes(idx))
+        : [];
+      await onSave(
+        {
+          id: initial?.id,
+          name: name.trim(),
+          animalType,
+          count: Math.max(0, Number(count) || 0),
+          housing: housing.trim(),
+          notes,
+        },
+        !initial && chosenPresets.length > 0
+          ? { presets: chosenPresets, assigneeId: defaultAssigneeId }
+          : undefined
+      );
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell
+      title={initial ? 'Edit Animal Group' : 'Add Animal Group'}
+      subtitle="Choose the animal type to get tailored daily feeding, cleaning, and care tasks."
+      onClose={onClose}
+    >
+      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Animal Type *</label>
+            <select
+              value={animalType}
+              onChange={(e) => handleTypeChange(e.target.value as AnimalType)}
+              className={inputCls}
+            >
+              {(Object.keys(ANIMAL_TYPE_LABELS) as AnimalType[]).map((t) => (
+                <option key={t} value={t}>
+                  {ANIMAL_TYPE_LABELS[t]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Group Name *</label>
+            <input
+              type="text"
+              required
+              maxLength={SCHEMA_LIMITS.NAME_MAX}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={
+                animalType === 'fish'
+                  ? 'e.g. Catfish Pond 2'
+                  : animalType === 'chicken'
+                    ? 'e.g. Chickens — Coop 2'
+                    : animalType === 'duck'
+                      ? 'e.g. Ducks — Pen B'
+                      : 'e.g. Goat Pen 1'
+              }
+              className={inputCls}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Approximate Count</label>
+            <input
+              type="number"
+              min={0}
+              max={1000000}
+              value={count}
+              onChange={(e) => setCount(Number(e.target.value))}
+              className={`${inputCls} font-mono`}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Pen / Coop / Pond Location</label>
+            <input
+              type="text"
+              maxLength={SCHEMA_LIMITS.HOUSING_MAX}
+              value={housing}
+              onChange={(e) => setHousing(e.target.value)}
+              placeholder="e.g. Coop 1, Duck Pen A, Tank 2"
+              className={inputCls}
+            />
+          </div>
+        </div>
+
+        {!initial && presets.length > 0 && (
+          <div className="pt-3 border-t border-[#EDF1EE] space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="text-xs font-semibold text-[#112119]">
+                Auto-add recommended {ANIMAL_TYPE_LABELS[animalType].toLowerCase()} tasks
+              </label>
+              <select
+                value={defaultAssigneeId}
+                onChange={(e) => setDefaultAssigneeId(e.target.value)}
+                aria-label="Assign starter tasks to"
+                className="h-8 px-2.5 text-xs bg-[#F8FAF9] border border-[#D4DDD8] rounded-lg text-[#112119]"
+              >
+                <option value="">Assign later</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    Assign to {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              {presets.map((preset, idx) => {
+                const checked = selectedPresetIdx.includes(idx);
+                return (
+                  <label
+                    key={preset.title}
+                    className={`flex items-start gap-2.5 p-2.5 rounded-lg border text-xs cursor-pointer ${
+                      checked
+                        ? 'bg-[#EEF6F0] border-[#B7CEC0] text-[#112119]'
+                        : 'bg-[#F8FAF9] border-[#E2E8E5] text-[#5A6E64]'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => togglePreset(idx)}
+                      className="mt-0.5 rounded border-[#94A3B8] text-[#14532D]"
+                    />
+                    <span>
+                      <strong className="font-semibold">{preset.title}</strong>{' '}
+                      <span className="text-[#5A6E64]">
+                        ({preset.everyDays === 1 ? 'Daily' : `Every ${preset.everyDays}d`})
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label className={labelCls}>Notes</label>
+          <textarea
+            rows={2}
+            maxLength={SCHEMA_LIMITS.NOTES_MAX}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Feed brand, bedding type, water details…"
+            className="w-full p-3 text-xs bg-[#F8FAF9] border border-[#D4DDD8] rounded-lg text-[#112119] focus:outline-none focus:border-[#14532D]"
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-10 px-4 text-xs font-medium text-[#4B5E55] hover:bg-[#F2F5F3] rounded-lg cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="h-10 px-5 text-xs font-semibold text-white bg-[#14532D] hover:bg-[#0F3F22] disabled:opacity-60 rounded-lg cursor-pointer"
+          >
+            {saving ? 'Saving…' : initial ? 'Save Group' : 'Add Animal Group'}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// 7. Add / Edit Animal Care Task Modal
+// -----------------------------------------------------------------------------
+export function AnimalTaskModal({
+  initial,
+  defaultAnimal,
+  animals,
+  members,
+  onClose,
+  onSave,
+}: {
+  initial: AnimalTask | null;
+  defaultAnimal?: AnimalGroup | null;
+  animals: AnimalGroup[];
+  members: FarmMember[];
+  onClose: () => void;
+  onSave: (
+    data: Omit<AnimalTask, 'id' | 'farmId' | 'ownerId' | 'createdAt' | 'updatedAt' | 'assigneeUid'> & {
+      id?: string;
+    }
+  ) => Promise<void>;
+}) {
+  const firstAnimal = defaultAnimal || animals.find((a) => a.id === initial?.animalId) || animals[0];
+  const [animalId, setAnimalId] = useState(initial?.animalId || firstAnimal?.id || '');
+  const selectedAnimal = animals.find((a) => a.id === animalId) || firstAnimal;
+  const activeAnimalType: AnimalType =
+    selectedAnimal?.animalType || initial?.animalType || 'chicken';
+
+  const [title, setTitle] = useState(initial?.title || '');
+  const [taskKind, setTaskKind] = useState<AnimalTaskKind>(initial?.taskKind || 'feeding');
+  const [everyDays, setEveryDays] = useState(initial?.everyDays ?? 1);
+  const [lastDoneDate, setLastDoneDate] = useState(initial?.lastDoneDate || '');
+  const [assigneeId, setAssigneeId] = useState(initial?.assigneeId || members[0]?.id || '');
+  const [notes, setNotes] = useState(initial?.notes || '');
+  const [saving, setSaving] = useState(false);
+
+  const presets = ANIMAL_TASK_PRESETS[activeAnimalType] || [];
+
+  const applyPreset = (preset: AnimalTaskPreset) => {
+    setTitle(preset.title);
+    setTaskKind(preset.taskKind);
+    setEveryDays(preset.everyDays);
+    setNotes(preset.notes);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setSaving(true);
+    try {
+      await onSave({
+        id: initial?.id,
+        animalId: selectedAnimal?.id || animalId || 'general',
+        animalName: selectedAnimal?.name || initial?.animalName || ANIMAL_TYPE_LABELS[activeAnimalType],
+        animalType: activeAnimalType,
+        taskKind,
+        title: title.trim(),
+        everyDays: Number(everyDays) || 1,
+        lastDoneDate,
+        assigneeId,
+        notes,
+      });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell
+      title={initial ? 'Edit Animal Task' : 'Add Animal Care Task'}
+      subtitle="Schedule recurring feeding, cleaning, egg collection, or water checks and assign a worker."
+      onClose={onClose}
+    >
+      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+        {animals.length > 0 && (
+          <div>
+            <label className={labelCls}>Animal Group *</label>
+            <select
+              value={animalId}
+              onChange={(e) => setAnimalId(e.target.value)}
+              className={inputCls}
+            >
+              {animals.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({ANIMAL_TYPE_LABELS[a.animalType]})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {!initial && presets.length > 0 && (
+          <div>
+            <div className="text-xs font-medium text-[#5A6E64] mb-1.5">
+              Quick templates for {ANIMAL_TYPE_LABELS[activeAnimalType]}:
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {presets.map((p) => (
+                <button
+                  key={p.title}
+                  type="button"
+                  onClick={() => applyPreset(p)}
+                  className="px-2.5 py-1.5 text-xs font-medium text-[#14532D] bg-[#EEF6F0] hover:bg-[#DCFCE7] rounded-lg transition-colors cursor-pointer"
+                >
+                  + {p.title}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label className={labelCls}>Task Name *</label>
+          <input
+            type="text"
+            required
+            maxLength={SCHEMA_LIMITS.TITLE_MAX}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. Feed catfish pellets, Clean duck pen, Collect eggs"
+            className={inputCls}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Task Type</label>
+            <select
+              value={taskKind}
+              onChange={(e) => setTaskKind(e.target.value as AnimalTaskKind)}
+              className={inputCls}
+            >
+              {(Object.keys(ANIMAL_TASK_KIND_LABELS) as AnimalTaskKind[]).map((k) => (
+                <option key={k} value={k}>
+                  {ANIMAL_TASK_KIND_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className={labelCls}>Assigned Person</label>
+            <select
+              value={assigneeId}
+              onChange={(e) => setAssigneeId(e.target.value)}
+              className={inputCls}
+            >
+              <option value="">Unassigned</option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className={labelCls}>Repeat Every (days)</label>
+            <input
+              type="number"
+              min={SCHEMA_LIMITS.CARE_DAYS_MIN}
+              max={SCHEMA_LIMITS.CARE_DAYS_MAX}
+              value={everyDays}
+              onChange={(e) => setEveryDays(Number(e.target.value))}
+              className={`${inputCls} font-mono`}
+            />
+          </div>
+
+          <div>
+            <label className={labelCls}>Last Done Date</label>
+            <input
+              type="date"
+              value={lastDoneDate}
+              onChange={(e) => setLastDoneDate(e.target.value)}
+              className={`${inputCls} font-mono`}
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className={labelCls}>Instructions / Notes</label>
+          <textarea
+            rows={2}
+            maxLength={SCHEMA_LIMITS.NOTES_MAX}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Optional instructions for the assigned worker…"
+            className="w-full p-3 text-xs bg-[#F8FAF9] border border-[#D4DDD8] rounded-lg text-[#112119] focus:outline-none focus:border-[#14532D]"
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-10 px-4 text-xs font-medium text-[#4B5E55] hover:bg-[#F2F5F3] rounded-lg cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="h-10 px-5 text-xs font-semibold text-white bg-[#14532D] hover:bg-[#0F3F22] disabled:opacity-60 rounded-lg cursor-pointer"
+          >
+            {saving ? 'Saving…' : initial ? 'Save Task' : 'Add Task'}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// 8. Worker Join Farm Code Modal
+// -----------------------------------------------------------------------------
+export function JoinFarmModal({
+  onClose,
+  onJoin,
+}: {
+  onClose: () => void;
+  onJoin: (code: string) => Promise<void>;
+}) {
+  const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [joining, setJoining] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleaned = sanitizeInviteCode(code);
+    if (cleaned.length < 6) {
+      setError('Enter the 6-character Join Code given by your farm manager.');
+      return;
+    }
+    setError(null);
+    setJoining(true);
+    try {
+      await onJoin(cleaned);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to join farm with that code.');
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  return (
+    <ModalShell
+      title="Join a Manager's Farm"
+      subtitle="Enter the 6-character code from your farm manager to view your assigned jobs."
+      onClose={onClose}
+    >
+      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+        <div>
+          <label className={labelCls}>6-Character Join Code *</label>
+          <input
+            type="text"
+            required
+            maxLength={12}
+            value={code}
+            onChange={(e) => setCode(sanitizeInviteCode(e.target.value))}
+            placeholder="e.g. K7M9P2"
+            className="w-full h-12 px-4 text-center font-mono text-lg font-bold tracking-[0.25em] uppercase bg-[#F8FAF9] border border-[#D4DDD8] rounded-lg text-[#112119] focus:outline-none focus:border-[#14532D]"
+          />
+          <p className="text-[11px] text-[#64786E] mt-1.5">
+            Ask your manager to open People &amp; Access and tap Create Join Code next to your name.
+          </p>
+        </div>
+
+        {error && (
+          <div className="p-3 text-xs font-medium text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-lg">
+            {error}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-10 px-4 text-xs font-medium text-[#4B5E55] hover:bg-[#F2F5F3] rounded-lg cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={joining}
+            className="h-10 px-5 text-xs font-semibold text-white bg-[#14532D] hover:bg-[#0F3F22] disabled:opacity-60 rounded-lg cursor-pointer"
+          >
+            {joining ? 'Joining…' : 'Join Farm'}
           </button>
         </div>
       </form>

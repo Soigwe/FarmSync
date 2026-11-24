@@ -36,6 +36,14 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]*$');
     }
 
+    function isInviteCode(code) {
+      return code is string && code.size() >= 6 && code.size() <= 16 && code.matches('^[A-Z0-9]+$');
+    }
+
+    function isOptionalInviteCode(code) {
+      return code is string && code.size() <= 16 && code.matches('^[A-Z0-9]*$');
+    }
+
     function isDateString(val) {
       return val is string && val.size() == 10 && val.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
     }
@@ -63,17 +71,30 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/farms/$(farmId)/members/$(memberId)).data.active == true;
     }
 
+    function isValidBoundedIdList(listVal) {
+      return listVal is list
+        && listVal.size() <= 10
+        && (listVal.size() == 0 || isValidId(listVal[0]));
+    }
+
     // =========================================================================
     // Entity Validation Blueprints (Aligned 1:1 with firebase-blueprint.json)
     // =========================================================================
 
     function isValidUserProfile(data) {
-      return data.keys().hasAll(['uid', 'displayName', 'activeFarmId', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'displayName', 'activeFarmId', 'createdAt', 'updatedAt'])
+      return data.keys().hasAll([
+          'uid', 'displayName', 'activeFarmId', 'activeRole', 'activeMemberId', 'activeFarmName', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'activeFarmId', 'activeRole', 'activeMemberId', 'activeFarmName', 'createdAt', 'updatedAt'
+        ])
         && isValidId(data.uid)
         && data.uid == request.auth.uid
         && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
         && isOptionalId(data.activeFarmId)
+        && data.activeRole in ['manager', 'worker']
+        && isOptionalId(data.activeMemberId)
+        && data.activeFarmName is string && data.activeFarmName.size() <= 80
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -89,12 +110,39 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
-    function isValidFarmMember(data, farmId) {
+    function isValidFarmInvite(data, inviteCode) {
       return data.keys().hasAll([
-          'farmId', 'ownerId', 'name', 'role', 'specialty', 'linkedUid', 'active', 'createdAt', 'updatedAt'
+          'code', 'farmId', 'farmName', 'ownerId', 'memberId', 'memberName',
+          'status', 'claimedByUid', 'initialPlantIds', 'initialTankIds',
+          'initialAnimalTaskIds', 'initialCustomTaskIds', 'createdAt', 'updatedAt'
         ])
         && data.keys().hasOnly([
-          'farmId', 'ownerId', 'name', 'role', 'specialty', 'linkedUid', 'active', 'createdAt', 'updatedAt'
+          'code', 'farmId', 'farmName', 'ownerId', 'memberId', 'memberName',
+          'status', 'claimedByUid', 'initialPlantIds', 'initialTankIds',
+          'initialAnimalTaskIds', 'initialCustomTaskIds', 'createdAt', 'updatedAt'
+        ])
+        && isInviteCode(data.code) && data.code == inviteCode
+        && isValidId(data.farmId)
+        && data.farmName is string && data.farmName.size() >= 1 && data.farmName.size() <= 80
+        && isValidId(data.ownerId)
+        && isValidId(data.memberId)
+        && data.memberName is string && data.memberName.size() >= 1 && data.memberName.size() <= 80
+        && data.status in ['open', 'claimed']
+        && isOptionalId(data.claimedByUid)
+        && isValidBoundedIdList(data.initialPlantIds)
+        && isValidBoundedIdList(data.initialTankIds)
+        && isValidBoundedIdList(data.initialAnimalTaskIds)
+        && isValidBoundedIdList(data.initialCustomTaskIds)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFarmMember(data, farmId) {
+      return data.keys().hasAll([
+          'farmId', 'ownerId', 'name', 'role', 'specialty', 'linkedUid', 'inviteCode', 'active', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'farmId', 'ownerId', 'name', 'role', 'specialty', 'linkedUid', 'inviteCode', 'active', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.farmId) && data.farmId == farmId
         && isValidId(data.ownerId)
@@ -102,6 +150,7 @@ service cloud.firestore {
         && data.role in ['manager', 'worker']
         && data.specialty is string && data.specialty.size() <= 100
         && isOptionalId(data.linkedUid)
+        && isOptionalInviteCode(data.inviteCode)
         && data.active is bool
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
@@ -148,12 +197,6 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
-    function isValidIrrigationBedList(beds) {
-      return beds is list
-        && beds.size() <= 10
-        && (beds.size() == 0 || isValidId(beds[0]));
-    }
-
     function isValidFishTank(data, farmId) {
       return data.keys().hasAll([
           'farmId', 'ownerId', 'name', 'species', 'capacityLiters', 'intervalDays',
@@ -176,7 +219,52 @@ service cloud.firestore {
         && isOptionalDateString(data.lastDrawdownDate)
         && isOptionalId(data.assigneeId)
         && isOptionalId(data.assigneeUid)
-        && isValidIrrigationBedList(data.irrigationBedIds)
+        && isValidBoundedIdList(data.irrigationBedIds)
+        && data.notes is string && data.notes.size() <= 400
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAnimalGroup(data, farmId) {
+      return data.keys().hasAll([
+          'farmId', 'ownerId', 'name', 'animalType', 'count', 'housing', 'notes', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'farmId', 'ownerId', 'name', 'animalType', 'count', 'housing', 'notes', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.farmId) && data.farmId == farmId
+        && isValidId(data.ownerId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 80
+        && data.animalType in ['fish', 'chicken', 'duck', 'goat', 'pig', 'cattle', 'other']
+        && data.count is int && data.count >= 0 && data.count <= 1000000
+        && data.housing is string && data.housing.size() <= 80
+        && data.notes is string && data.notes.size() <= 400
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAnimalTask(data, farmId) {
+      return data.keys().hasAll([
+          'farmId', 'ownerId', 'animalId', 'animalName', 'animalType', 'taskKind',
+          'title', 'everyDays', 'lastDoneDate', 'assigneeId', 'assigneeUid', 'notes',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'farmId', 'ownerId', 'animalId', 'animalName', 'animalType', 'taskKind',
+          'title', 'everyDays', 'lastDoneDate', 'assigneeId', 'assigneeUid', 'notes',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.farmId) && data.farmId == farmId
+        && isValidId(data.ownerId)
+        && isOptionalId(data.animalId)
+        && data.animalName is string && data.animalName.size() >= 1 && data.animalName.size() <= 80
+        && data.animalType in ['fish', 'chicken', 'duck', 'goat', 'pig', 'cattle', 'other']
+        && data.taskKind in ['feeding', 'cleaning', 'water_change', 'egg_collection', 'health_check', 'other']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && data.everyDays is int && data.everyDays >= 1 && data.everyDays <= 180
+        && isOptionalDateString(data.lastDoneDate)
+        && isOptionalId(data.assigneeId)
+        && isOptionalId(data.assigneeUid)
         && data.notes is string && data.notes.size() <= 400
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
@@ -194,7 +282,7 @@ service cloud.firestore {
         && isValidId(data.farmId) && data.farmId == farmId
         && isValidId(data.ownerId)
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
-        && data.category in ['water', 'mulch', 'prune', 'fish_tank', 'harvest', 'maintenance']
+        && data.category in ['water', 'mulch', 'prune', 'fish_tank', 'animal', 'harvest', 'maintenance']
         && isDateString(data.dueDate)
         && data.recurrenceDays is int && data.recurrenceDays >= 0 && data.recurrenceDays <= 365
         && isOptionalId(data.assigneeId)
@@ -211,30 +299,36 @@ service cloud.firestore {
           'farmId', 'ownerId', 'dateKey', 'taskType', 'sourceId', 'sourceTitle',
           'assignedMemberId', 'assignedMemberName', 'assignedUid',
           'completedByUid', 'completedByName', 'status',
-          'waterVolumeLiters', 'tankStage', 'notes', 'createdAt'
+          'approvalStatus', 'confirmedByUid', 'confirmedByName',
+          'waterVolumeLiters', 'tankStage', 'notes', 'createdAt', 'updatedAt'
         ])
         && data.keys().hasOnly([
           'farmId', 'ownerId', 'dateKey', 'taskType', 'sourceId', 'sourceTitle',
           'assignedMemberId', 'assignedMemberName', 'assignedUid',
           'completedByUid', 'completedByName', 'status',
-          'waterVolumeLiters', 'tankStage', 'notes', 'createdAt'
+          'approvalStatus', 'confirmedByUid', 'confirmedByName',
+          'waterVolumeLiters', 'tankStage', 'notes', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.farmId) && data.farmId == farmId
         && isValidId(data.ownerId)
         && isDateString(data.dateKey)
-        && data.taskType in ['water', 'mulch', 'prune', 'fish_tank', 'custom']
+        && data.taskType in ['water', 'mulch', 'prune', 'fish_tank', 'animal', 'custom']
         && isValidId(data.sourceId)
         && data.sourceTitle is string && data.sourceTitle.size() >= 1 && data.sourceTitle.size() <= 120
         && isOptionalId(data.assignedMemberId)
         && data.assignedMemberName is string && data.assignedMemberName.size() >= 1 && data.assignedMemberName.size() <= 80
         && isOptionalId(data.assignedUid)
-        && isValidId(data.completedByUid) && data.completedByUid == request.auth.uid
+        && isValidId(data.completedByUid)
         && data.completedByName is string && data.completedByName.size() >= 1 && data.completedByName.size() <= 80
         && data.status == 'done'
+        && data.approvalStatus in ['pending_confirmation', 'confirmed']
+        && isOptionalId(data.confirmedByUid)
+        && data.confirmedByName is string && data.confirmedByName.size() <= 80
         && data.waterVolumeLiters is int && data.waterVolumeLiters >= 0 && data.waterVolumeLiters <= 1000000
         && data.tankStage in ['', '1/4', '2/4', '3/4']
         && data.notes is string && data.notes.size() <= 300
-        && data.createdAt is timestamp;
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
     }
 
     // =========================================================================
@@ -257,12 +351,49 @@ service cloud.firestore {
         && incoming().uid == existing().uid
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'activeFarmId', 'updatedAt']);
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'activeFarmId', 'activeRole', 'activeMemberId', 'activeFarmName', 'updatedAt'
+        ]);
       allow delete: if false;
     }
 
     // =========================================================================
-    // Collection 2: /farms/{farmId}
+    // Collection 2: /farmInvites/{inviteCode} (Worker Join Code Exchange)
+    // =========================================================================
+
+    match /farmInvites/{inviteCode} {
+      // Single-code lookup only (no list scraping)
+      allow get: if isVerified() && isInviteCode(inviteCode);
+      allow list: if false;
+      allow create: if isVerified()
+        && isInviteCode(inviteCode)
+        && isValidFarmInvite(incoming(), inviteCode)
+        && incoming().ownerId == request.auth.uid
+        && incoming().status == 'open'
+        && incoming().claimedByUid == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && isFarmOwner(incoming().farmId);
+      allow update: if isVerified()
+        && isInviteCode(inviteCode)
+        && isValidFarmInvite(incoming(), inviteCode)
+        && incoming().code == existing().code
+        && incoming().farmId == existing().farmId
+        && incoming().ownerId == existing().ownerId
+        && incoming().memberId == existing().memberId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && existing().status == 'open'
+        && incoming().status == 'claimed'
+        && incoming().claimedByUid == request.auth.uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'claimedByUid', 'updatedAt']);
+      allow delete: if isVerified()
+        && isInviteCode(inviteCode)
+        && existing().ownerId == request.auth.uid;
+    }
+
+    // =========================================================================
+    // Collection 3: /farms/{farmId}
     // =========================================================================
 
     match /farms/{farmId} {
@@ -287,7 +418,7 @@ service cloud.firestore {
         && existing().ownerId == request.auth.uid;
 
       // -----------------------------------------------------------------------
-      // Subcollection 2a: /farms/{farmId}/members/{memberId}
+      // Subcollection 3a: /farms/{farmId}/members/{memberId}
       // -----------------------------------------------------------------------
       match /members/{memberId} {
         allow get: if isSignedIn()
@@ -310,8 +441,26 @@ service cloud.firestore {
           && incoming().ownerId == existing().ownerId
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
-          && isFarmOwner(farmId)
-          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'role', 'specialty', 'linkedUid', 'active', 'updatedAt']);
+          && (
+            // Tier 1 Action: Farm Manager edits member or generates invite code
+            (
+              isFarmOwner(farmId)
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'name', 'role', 'specialty', 'linkedUid', 'inviteCode', 'active', 'updatedAt'
+              ])
+            )
+            // Tier 2 Action: Worker claims open invite code atomically (Pillar 7 getAfter)
+            || (
+              existing().linkedUid == ''
+              && existing().active == true
+              && isInviteCode(existing().inviteCode)
+              && incoming().linkedUid == request.auth.uid
+              && getAfter(/databases/$(database)/documents/farmInvites/$(existing().inviteCode)).data.claimedByUid == request.auth.uid
+              && getAfter(/databases/$(database)/documents/farmInvites/$(existing().inviteCode)).data.memberId == memberId
+              && getAfter(/databases/$(database)/documents/farmInvites/$(existing().inviteCode)).data.farmId == farmId
+              && incoming().diff(existing()).affectedKeys().hasOnly(['linkedUid', 'updatedAt'])
+            )
+          );
         allow delete: if isVerified()
           && isValidId(farmId) && isValidId(memberId)
           && existing().ownerId == request.auth.uid
@@ -319,7 +468,7 @@ service cloud.firestore {
       }
 
       // -----------------------------------------------------------------------
-      // Subcollection 2b: /farms/{farmId}/plants/{plantId}
+      // Subcollection 3b: /farms/{farmId}/plants/{plantId}
       // -----------------------------------------------------------------------
       match /plants/{plantId} {
         allow get: if isSignedIn()
@@ -353,7 +502,7 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
           && (
-            // Tier 1 Action: Owner full schedule update
+            // Tier 1 Action: Manager full schedule update & confirmation updates
             (
               isFarmOwner(farmId)
               && incoming().diff(existing()).affectedKeys().hasOnly([
@@ -364,23 +513,24 @@ service cloud.firestore {
                 'receivesFishWater', 'notes', 'updatedAt'
               ])
             )
-            // Tier 2 Action: Assigned worker marks watering done
+            // Tier 2 Action: Newly linked worker binds their own UID to assigned plant slots
             || (
-              existing().waterAssigneeUid == request.auth.uid
-              && farmExists(farmId)
-              && incoming().diff(existing()).affectedKeys().hasOnly(['lastWateredDate', 'updatedAt'])
-            )
-            // Tier 2 Action: Assigned worker marks mulching done
-            || (
-              existing().mulchAssigneeUid == request.auth.uid
-              && farmExists(farmId)
-              && incoming().diff(existing()).affectedKeys().hasOnly(['lastMulchedDate', 'updatedAt'])
-            )
-            // Tier 2 Action: Assigned worker marks pruning done
-            || (
-              existing().pruneAssigneeUid == request.auth.uid
-              && farmExists(farmId)
-              && incoming().diff(existing()).affectedKeys().hasOnly(['lastPrunedDate', 'updatedAt'])
+              farmExists(farmId)
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'waterAssigneeUid', 'mulchAssigneeUid', 'pruneAssigneeUid', 'updatedAt'
+              ])
+              && (
+                incoming().waterAssigneeUid == existing().waterAssigneeUid
+                || (existing().waterAssigneeUid == '' && incoming().waterAssigneeUid == request.auth.uid && isActiveLinkedMember(farmId, existing().waterAssigneeId))
+              )
+              && (
+                incoming().mulchAssigneeUid == existing().mulchAssigneeUid
+                || (existing().mulchAssigneeUid == '' && incoming().mulchAssigneeUid == request.auth.uid && isActiveLinkedMember(farmId, existing().mulchAssigneeId))
+              )
+              && (
+                incoming().pruneAssigneeUid == existing().pruneAssigneeUid
+                || (existing().pruneAssigneeUid == '' && incoming().pruneAssigneeUid == request.auth.uid && isActiveLinkedMember(farmId, existing().pruneAssigneeId))
+              )
             )
           );
         allow delete: if isVerified()
@@ -390,7 +540,7 @@ service cloud.firestore {
       }
 
       // -----------------------------------------------------------------------
-      // Subcollection 2c: /farms/{farmId}/fishTanks/{tankId}
+      // Subcollection 3c: /farms/{farmId}/fishTanks/{tankId}
       // -----------------------------------------------------------------------
       match /fishTanks/{tankId} {
         allow get: if isSignedIn()
@@ -414,7 +564,7 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
           && (
-            // Tier 1 Action: Owner configures fish tank & irrigation mapping
+            // Tier 1 Action: Manager configures fish tank & confirms stage advances
             (
               isFarmOwner(farmId)
               && incoming().diff(existing()).affectedKeys().hasOnly([
@@ -423,18 +573,13 @@ service cloud.firestore {
                 'assigneeId', 'assigneeUid', 'irrigationBedIds', 'notes', 'updatedAt'
               ])
             )
-            // Tier 2 Action: Assigned worker completes drawdown stage (1->2->3->1)
+            // Tier 2 Action: Newly linked worker binds their own UID to assigned tank
             || (
-              existing().assigneeUid == request.auth.uid
-              && farmExists(farmId)
-              && (
-                (existing().currentStage == 1 && incoming().currentStage == 2)
-                || (existing().currentStage == 2 && incoming().currentStage == 3)
-                || (existing().currentStage == 3 && incoming().currentStage == 1)
-              )
-              && incoming().diff(existing()).affectedKeys().hasOnly([
-                'currentStage', 'nextDrawdownDate', 'lastDrawdownDate', 'updatedAt'
-              ])
+              farmExists(farmId)
+              && existing().assigneeUid == ''
+              && incoming().assigneeUid == request.auth.uid
+              && isActiveLinkedMember(farmId, existing().assigneeId)
+              && incoming().diff(existing()).affectedKeys().hasOnly(['assigneeUid', 'updatedAt'])
             )
           );
         allow delete: if isVerified()
@@ -444,7 +589,88 @@ service cloud.firestore {
       }
 
       // -----------------------------------------------------------------------
-      // Subcollection 2d: /farms/{farmId}/tasks/{taskId}
+      // Subcollection 3d: /farms/{farmId}/animals/{animalId}
+      // -----------------------------------------------------------------------
+      match /animals/{animalId} {
+        allow get: if isSignedIn()
+          && isValidId(farmId) && isValidId(animalId)
+          && existing().ownerId == request.auth.uid
+          && farmExists(farmId);
+        allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
+        allow create: if isVerified()
+          && isValidId(farmId) && isValidId(animalId)
+          && isValidAnimalGroup(incoming(), farmId)
+          && incoming().ownerId == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && isFarmOwner(farmId);
+        allow update: if isVerified()
+          && isValidId(farmId) && isValidId(animalId)
+          && isValidAnimalGroup(incoming(), farmId)
+          && incoming().farmId == existing().farmId
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && isFarmOwner(farmId)
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'animalType', 'count', 'housing', 'notes', 'updatedAt'
+          ]);
+        allow delete: if isVerified()
+          && isValidId(farmId) && isValidId(animalId)
+          && existing().ownerId == request.auth.uid
+          && isFarmOwner(farmId);
+      }
+
+      // -----------------------------------------------------------------------
+      // Subcollection 3e: /farms/{farmId}/animalTasks/{taskId}
+      // -----------------------------------------------------------------------
+      match /animalTasks/{taskId} {
+        allow get: if isSignedIn()
+          && isValidId(farmId) && isValidId(taskId)
+          && (existing().ownerId == request.auth.uid || existing().assigneeUid == request.auth.uid)
+          && farmExists(farmId);
+        allow list: if isSignedIn()
+          && (existing().ownerId == request.auth.uid || existing().assigneeUid == request.auth.uid);
+        allow create: if isVerified()
+          && isValidId(farmId) && isValidId(taskId)
+          && isValidAnimalTask(incoming(), farmId)
+          && incoming().ownerId == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && isFarmOwner(farmId);
+        allow update: if isVerified()
+          && isValidId(farmId) && isValidId(taskId)
+          && isValidAnimalTask(incoming(), farmId)
+          && incoming().farmId == existing().farmId
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            // Tier 1 Action: Manager edits animal task or confirms completion
+            (
+              isFarmOwner(farmId)
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'animalId', 'animalName', 'animalType', 'taskKind',
+                'title', 'everyDays', 'lastDoneDate', 'assigneeId', 'assigneeUid', 'notes', 'updatedAt'
+              ])
+            )
+            // Tier 2 Action: Newly linked worker binds their own UID to assigned animal task
+            || (
+              farmExists(farmId)
+              && existing().assigneeUid == ''
+              && incoming().assigneeUid == request.auth.uid
+              && isActiveLinkedMember(farmId, existing().assigneeId)
+              && incoming().diff(existing()).affectedKeys().hasOnly(['assigneeUid', 'updatedAt'])
+            )
+          );
+        allow delete: if isVerified()
+          && isValidId(farmId) && isValidId(taskId)
+          && existing().ownerId == request.auth.uid
+          && isFarmOwner(farmId);
+      }
+
+      // -----------------------------------------------------------------------
+      // Subcollection 3f: /farms/{farmId}/tasks/{taskId}
       // -----------------------------------------------------------------------
       match /tasks/{taskId} {
         allow get: if isSignedIn()
@@ -468,7 +694,7 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
           && (
-            // Tier 1 Action: Owner modifies or reschedules custom task
+            // Tier 1 Action: Manager edits task or confirms completion
             (
               isFarmOwner(farmId)
               && incoming().diff(existing()).affectedKeys().hasOnly([
@@ -476,22 +702,13 @@ service cloud.firestore {
                 'assigneeId', 'assigneeUid', 'status', 'completedDate', 'notes', 'updatedAt'
               ])
             )
-            // Tier 2 Action: Assigned worker marks pending one-time task completed (terminal state locked)
+            // Tier 2 Action: Newly linked worker binds their own UID to assigned task
             || (
-              existing().assigneeUid == request.auth.uid
-              && farmExists(farmId)
-              && existing().status == 'pending'
-              && existing().recurrenceDays == 0
-              && incoming().status == 'completed'
-              && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'completedDate', 'updatedAt'])
-            )
-            // Tier 2 Action: Assigned worker advances recurring custom task to next due date
-            || (
-              existing().assigneeUid == request.auth.uid
-              && farmExists(farmId)
-              && existing().recurrenceDays > 0
-              && incoming().status == 'pending'
-              && incoming().diff(existing()).affectedKeys().hasOnly(['dueDate', 'completedDate', 'updatedAt'])
+              farmExists(farmId)
+              && existing().assigneeUid == ''
+              && incoming().assigneeUid == request.auth.uid
+              && isActiveLinkedMember(farmId, existing().assigneeId)
+              && incoming().diff(existing()).affectedKeys().hasOnly(['assigneeUid', 'updatedAt'])
             )
           );
         allow delete: if isVerified()
@@ -501,8 +718,9 @@ service cloud.firestore {
       }
 
       // -----------------------------------------------------------------------
-      // Subcollection 2e: /farms/{farmId}/completions/{completionId}
-      // Immutable daily sign-off ledger (Terminal State Locked — no updates)
+      // Subcollection 3g: /farms/{farmId}/completions/{completionId}
+      // Worker submissions MUST start as pending_confirmation; Manager confirms
+      // to terminal state 'confirmed' (locked against further updates).
       // -----------------------------------------------------------------------
       match /completions/{completionId} {
         allow get: if isSignedIn()
@@ -522,23 +740,53 @@ service cloud.firestore {
         allow create: if isVerified()
           && isValidId(farmId) && isValidId(completionId)
           && isValidCompletionLog(incoming(), farmId)
+          && incoming().completedByUid == request.auth.uid
           && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
           && farmExists(farmId)
           && incoming().ownerId == getFarm(farmId).ownerId
           && (
-            getFarm(farmId).ownerId == request.auth.uid
+            // Manager creates directly confirmed completion (or pending if logging on worker's behalf)
+            (
+              getFarm(farmId).ownerId == request.auth.uid
+              && (
+                (incoming().approvalStatus == 'confirmed' && incoming().confirmedByUid == request.auth.uid)
+                || (incoming().approvalStatus == 'pending_confirmation' && incoming().confirmedByUid == '')
+              )
+            )
+            // Worker submits completion — strictly forced to pending_confirmation
             || (
               incoming().assignedUid == request.auth.uid
+              && incoming().approvalStatus == 'pending_confirmation'
+              && incoming().confirmedByUid == ''
+              && incoming().confirmedByName == ''
               && isActiveLinkedMember(farmId, incoming().assignedMemberId)
             )
           );
-        allow update: if false;
+        allow update: if isVerified()
+          && isValidId(farmId) && isValidId(completionId)
+          && isValidCompletionLog(incoming(), farmId)
+          && incoming().farmId == existing().farmId
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          // Terminal State Locking: only transition pending_confirmation -> confirmed by Farm Manager
+          && isFarmOwner(farmId)
+          && existing().approvalStatus == 'pending_confirmation'
+          && incoming().approvalStatus == 'confirmed'
+          && incoming().confirmedByUid == request.auth.uid
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'approvalStatus', 'confirmedByUid', 'confirmedByName', 'updatedAt'
+          ]);
         allow delete: if isVerified()
           && isValidId(farmId) && isValidId(completionId)
           && farmExists(farmId)
           && (
             existing().ownerId == request.auth.uid
-            || existing().completedByUid == request.auth.uid
+            || (
+              existing().completedByUid == request.auth.uid
+              && existing().approvalStatus == 'pending_confirmation'
+            )
           );
       }
     }

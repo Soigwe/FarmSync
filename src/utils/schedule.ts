@@ -1,4 +1,7 @@
 import {
+  ANIMAL_TASK_KIND_LABELS,
+  ANIMAL_TYPE_LABELS,
+  AnimalTask,
   CompletionLog,
   CustomTask,
   FarmMember,
@@ -14,6 +17,19 @@ const ID_CLEAN_REGEX = /[^a-zA-Z0-9_-]/g;
 
 export function sanitizeId(raw: string): string {
   return raw.replace(ID_CLEAN_REGEX, '').slice(0, SCHEMA_LIMITS.ID_MAX);
+}
+
+export function sanitizeInviteCode(raw: string): string {
+  return raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+}
+
+export function generateInviteCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let out = '';
+  for (let i = 0; i < 6; i++) {
+    out += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return out;
 }
 
 export function generateDocId(prefix: string): string {
@@ -122,17 +138,38 @@ export function getMemberName(members: FarmMember[], memberId: string): string {
   return found ? found.name : 'Unassigned';
 }
 
+export function isCompletionConfirmed(log?: CompletionLog): boolean {
+  if (!log) return false;
+  return (log.approvalStatus ?? 'confirmed') === 'confirmed';
+}
+
+export function isCompletionPending(log?: CompletionLog): boolean {
+  if (!log) return false;
+  return log.approvalStatus === 'pending_confirmation';
+}
+
 export function buildDailySchedule(params: {
   selectedDate: string;
   todayDate: string;
   plants: PlantSchedule[];
   fishTanks: FishTank[];
+  animalTasks: AnimalTask[];
   tasks: CustomTask[];
   members: FarmMember[];
   completions: CompletionLog[];
   volumeUnit: VolumeUnit;
 }): ScheduledActivity[] {
-  const { selectedDate, todayDate, plants, fishTanks, tasks, members, completions, volumeUnit } = params;
+  const {
+    selectedDate,
+    todayDate,
+    plants,
+    fishTanks,
+    animalTasks,
+    tasks,
+    members,
+    completions,
+    volumeUnit,
+  } = params;
   const activities: ScheduledActivity[] = [];
   const isViewingTodayOrPast = selectedDate <= todayDate;
 
@@ -141,7 +178,7 @@ export function buildDailySchedule(params: {
       (c) => c.dateKey === selectedDate && c.taskType === taskType && c.sourceId === sourceId
     );
 
-  // 1. Fish Tank Drawdown Activities (1/4 -> 2/4 -> 3/4 every 2 days)
+  // 1. Fish Tank Water Change Activities (1/4 -> 2/4 -> 3/4 every 2 days)
   for (const tank of fishTanks) {
     const comp = findCompletion('fish_tank', tank.id);
     const linkedPlantNames = tank.irrigationBedIds
@@ -150,32 +187,37 @@ export function buildDailySchedule(params: {
 
     if (comp) {
       const stageNum: TankStage = comp.tankStage === '3/4' ? 3 : comp.tankStage === '2/4' ? 2 : 1;
+      const pending = isCompletionPending(comp);
       activities.push({
         key: `fish_tank:${tank.id}:${selectedDate}`,
+        farmArea: 'animals',
         taskType: 'fish_tank',
         sourceId: tank.id,
-        title: `${tank.name} — ${comp.tankStage || stageToLabel(tank.currentStage)} drawdown`,
-        subtitle: `Irrigated ${linkedPlantNames.length > 0 ? linkedPlantNames.join(', ') : 'crop beds'} with ${formatVolume(comp.waterVolumeLiters, volumeUnit)} effluent`,
-        zoneOrDetail: `${tank.species} · ${formatVolume(tank.capacityLiters, volumeUnit)} tank`,
+        title: `${tank.name} — drain ${comp.tankStage || stageToLabel(tank.currentStage)} water`,
+        subtitle: `Route ${formatVolume(comp.waterVolumeLiters, volumeUnit)} to ${
+          linkedPlantNames.length > 0 ? linkedPlantNames.join(', ') : 'crop beds'
+        }`,
+        zoneOrDetail: `Fish · ${tank.species}`,
         dueDate: selectedDate,
         daysOverdue: 0,
-        urgency: 'done',
+        urgency: pending ? 'pending_confirmation' : 'done',
         assigneeId: tank.assigneeId,
         assigneeName: comp.assignedMemberName || getMemberName(members, tank.assigneeId),
         assigneeUid: tank.assigneeUid,
-        isDoneForDay: true,
+        isDoneForDay: !pending,
+        isPendingConfirmation: pending,
         completionLog: comp,
+        animalType: 'fish',
         tankStage: stageNum,
         tankStageLabel: comp.tankStage || stageToLabel(tank.currentStage),
         waterVolumeLiters: comp.waterVolumeLiters,
         linkedPlantIds: tank.irrigationBedIds,
         linkedPlantNames,
-        cadenceLabel: `Every ${tank.intervalDays}d cycle`,
+        cadenceLabel: `Every ${tank.intervalDays}d`,
       });
       continue;
     }
 
-    // Determine if this tank is due on or before selectedDate, or falls on a projected future cycle day
     const delta = diffDays(tank.nextDrawdownDate, selectedDate);
     let projectedStage: TankStage | null = null;
     let effectiveDueDate = tank.nextDrawdownDate;
@@ -194,16 +236,17 @@ export function buildDailySchedule(params: {
       const stageLabel = stageToLabel(projectedStage);
       const dischargeLiters = getStageDischargeLiters(tank.capacityLiters, projectedStage);
       const overdueDays = Math.max(0, diffDays(effectiveDueDate, selectedDate));
-      const refillNote = projectedStage === 3 ? ' + full fresh refill' : '';
+      const refillNote = projectedStage === 3 ? ' + refill fresh water' : '';
       activities.push({
         key: `fish_tank:${tank.id}:${selectedDate}`,
+        farmArea: 'animals',
         taskType: 'fish_tank',
         sourceId: tank.id,
-        title: `${tank.name} — reduce by ${stageLabel}${refillNote}`,
-        subtitle: `Discharge ${formatVolume(dischargeLiters, volumeUnit)} for irrigation → ${
-          linkedPlantNames.length > 0 ? linkedPlantNames.join(', ') : 'Select beds to irrigate'
+        title: `${tank.name} — drain ${stageLabel}${refillNote}`,
+        subtitle: `Use ${formatVolume(dischargeLiters, volumeUnit)} for irrigation → ${
+          linkedPlantNames.length > 0 ? linkedPlantNames.join(', ') : 'crop beds'
         }`,
-        zoneOrDetail: `${tank.species} · ${formatVolume(tank.capacityLiters, volumeUnit)} tank`,
+        zoneOrDetail: `Fish · ${tank.species}`,
         dueDate: effectiveDueDate,
         daysOverdue: overdueDays,
         urgency: overdueDays > 0 ? 'overdue' : selectedDate === todayDate ? 'due_today' : 'upcoming',
@@ -211,17 +254,83 @@ export function buildDailySchedule(params: {
         assigneeName: getMemberName(members, tank.assigneeId),
         assigneeUid: tank.assigneeUid,
         isDoneForDay: false,
+        isPendingConfirmation: false,
+        animalType: 'fish',
         tankStage: projectedStage,
         tankStageLabel: stageLabel,
         waterVolumeLiters: dischargeLiters,
         linkedPlantIds: tank.irrigationBedIds,
         linkedPlantNames,
-        cadenceLabel: `Every ${tank.intervalDays}d (${stageLabel} step)`,
+        cadenceLabel: `Every ${tank.intervalDays}d (${stageLabel})`,
       });
     }
   }
 
-  // 2. Plant Care Activities (Watering, Mulching, Pruning)
+  // 2. Animal Farm Care Tasks (Feeding Catfish, Feeding/Cleaning Chickens & Ducks, etc.)
+  for (const aTask of animalTasks) {
+    const comp = findCompletion('animal', aTask.id);
+    const typeText = ANIMAL_TYPE_LABELS[aTask.animalType] || 'Animals';
+    const kindText = ANIMAL_TASK_KIND_LABELS[aTask.taskKind] || 'Care';
+
+    if (comp) {
+      const pending = isCompletionPending(comp);
+      activities.push({
+        key: `animal:${aTask.id}:${selectedDate}`,
+        farmArea: 'animals',
+        taskType: 'animal',
+        sourceId: aTask.id,
+        title: `${aTask.title} — ${aTask.animalName}`,
+        subtitle: comp.notes || aTask.notes || `${typeText} ${kindText.toLowerCase()}`,
+        zoneOrDetail: `${typeText} · ${kindText}`,
+        dueDate: selectedDate,
+        daysOverdue: 0,
+        urgency: pending ? 'pending_confirmation' : 'done',
+        assigneeId: aTask.assigneeId,
+        assigneeName: comp.assignedMemberName || getMemberName(members, aTask.assigneeId),
+        assigneeUid: aTask.assigneeUid,
+        isDoneForDay: !pending,
+        isPendingConfirmation: pending,
+        completionLog: comp,
+        animalType: aTask.animalType,
+        animalTaskKind: aTask.taskKind,
+        cadenceLabel: aTask.everyDays === 1 ? 'Daily' : `Every ${aTask.everyDays}d`,
+      });
+      continue;
+    }
+
+    const nextDue = getNextCareDueDate(aTask.lastDoneDate, aTask.everyDays, todayDate);
+    const delta = diffDays(nextDue, selectedDate);
+    const isDueOnSelected =
+      (isViewingTodayOrPast && delta >= 0) ||
+      (!isViewingTodayOrPast && delta >= 0 && delta % aTask.everyDays === 0);
+
+    if (isDueOnSelected) {
+      const effectiveDue = isViewingTodayOrPast ? nextDue : selectedDate;
+      const overdueDays = Math.max(0, diffDays(effectiveDue, selectedDate));
+      activities.push({
+        key: `animal:${aTask.id}:${selectedDate}`,
+        farmArea: 'animals',
+        taskType: 'animal',
+        sourceId: aTask.id,
+        title: `${aTask.title} — ${aTask.animalName}`,
+        subtitle: aTask.notes || `${typeText} ${kindText.toLowerCase()}`,
+        zoneOrDetail: `${typeText} · ${kindText}`,
+        dueDate: effectiveDue,
+        daysOverdue: overdueDays,
+        urgency: overdueDays > 0 ? 'overdue' : selectedDate === todayDate ? 'due_today' : 'upcoming',
+        assigneeId: aTask.assigneeId,
+        assigneeName: getMemberName(members, aTask.assigneeId),
+        assigneeUid: aTask.assigneeUid,
+        isDoneForDay: false,
+        isPendingConfirmation: false,
+        animalType: aTask.animalType,
+        animalTaskKind: aTask.taskKind,
+        cadenceLabel: aTask.everyDays === 1 ? 'Daily' : `Every ${aTask.everyDays}d`,
+      });
+    }
+  }
+
+  // 3. Plant Care Activities (Watering, Mulching, Pruning)
   for (const plant of plants) {
     const careConfigs: Array<{
       enabled: boolean;
@@ -241,9 +350,7 @@ export function buildDailySchedule(params: {
         assigneeId: plant.waterAssigneeId,
         assigneeUid: plant.waterAssigneeUid,
         verb: 'Water',
-        detail: plant.receivesFishWater
-          ? 'Accepts fish tank effluent water'
-          : 'Fresh irrigation watering',
+        detail: plant.receivesFishWater ? 'Can use fish tank water' : 'Fresh water',
       },
       {
         enabled: plant.mulchEnabled,
@@ -253,7 +360,7 @@ export function buildDailySchedule(params: {
         assigneeId: plant.mulchAssigneeId,
         assigneeUid: plant.mulchAssigneeUid,
         verb: 'Add mulch to',
-        detail: 'Top-dress organic straw/compost mulch',
+        detail: 'Spread straw or organic mulch around roots',
       },
       {
         enabled: plant.pruneEnabled,
@@ -263,7 +370,7 @@ export function buildDailySchedule(params: {
         assigneeId: plant.pruneAssigneeId,
         assigneeUid: plant.pruneAssigneeUid,
         verb: 'Prune',
-        detail: 'Trim suckers, deadwood & shape canopy',
+        detail: 'Trim side shoots & dry leaves',
       },
     ];
 
@@ -271,23 +378,26 @@ export function buildDailySchedule(params: {
       if (!cfg.enabled) continue;
       const comp = findCompletion(cfg.taskType, plant.id);
       if (comp) {
+        const pending = isCompletionPending(comp);
         activities.push({
           key: `${cfg.taskType}:${plant.id}:${selectedDate}`,
+          farmArea: 'plants',
           taskType: cfg.taskType,
           sourceId: plant.id,
           title: `${cfg.verb} ${plant.name}`,
           subtitle: comp.notes || cfg.detail,
-          zoneOrDetail: `${plant.zone} · ${plant.category}`,
+          zoneOrDetail: `Plants · ${plant.zone}`,
           dueDate: selectedDate,
           daysOverdue: 0,
-          urgency: 'done',
+          urgency: pending ? 'pending_confirmation' : 'done',
           assigneeId: cfg.assigneeId,
           assigneeName: comp.assignedMemberName || getMemberName(members, cfg.assigneeId),
           assigneeUid: cfg.assigneeUid,
-          isDoneForDay: true,
+          isDoneForDay: !pending,
+          isPendingConfirmation: pending,
           completionLog: comp,
           receivesFishWater: plant.receivesFishWater,
-          cadenceLabel: `Every ${cfg.everyDays}d`,
+          cadenceLabel: cfg.everyDays === 1 ? 'Daily' : `Every ${cfg.everyDays}d`,
         });
         continue;
       }
@@ -303,11 +413,12 @@ export function buildDailySchedule(params: {
         const overdueDays = Math.max(0, diffDays(effectiveDue, selectedDate));
         activities.push({
           key: `${cfg.taskType}:${plant.id}:${selectedDate}`,
+          farmArea: 'plants',
           taskType: cfg.taskType,
           sourceId: plant.id,
           title: `${cfg.verb} ${plant.name}`,
           subtitle: cfg.detail,
-          zoneOrDetail: `${plant.zone} · ${plant.category}`,
+          zoneOrDetail: `Plants · ${plant.zone}`,
           dueDate: effectiveDue,
           daysOverdue: overdueDays,
           urgency: overdueDays > 0 ? 'overdue' : selectedDate === todayDate ? 'due_today' : 'upcoming',
@@ -315,31 +426,42 @@ export function buildDailySchedule(params: {
           assigneeName: getMemberName(members, cfg.assigneeId),
           assigneeUid: cfg.assigneeUid,
           isDoneForDay: false,
+          isPendingConfirmation: false,
           receivesFishWater: plant.receivesFishWater,
-          cadenceLabel: `Every ${cfg.everyDays}d`,
+          cadenceLabel: cfg.everyDays === 1 ? 'Daily' : `Every ${cfg.everyDays}d`,
         });
       }
     }
   }
 
-  // 3. Custom Tasks
+  // 4. Custom Tasks
   for (const task of tasks) {
     const comp = findCompletion('custom', task.id);
+    const area: ScheduledActivity['farmArea'] =
+      task.category === 'fish_tank' || task.category === 'animal'
+        ? 'animals'
+        : task.category === 'water' || task.category === 'mulch' || task.category === 'prune'
+          ? 'plants'
+          : 'general';
+
     if (comp) {
+      const pending = isCompletionPending(comp);
       activities.push({
         key: `custom:${task.id}:${selectedDate}`,
+        farmArea: area,
         taskType: 'custom',
         sourceId: task.id,
         title: task.title,
-        subtitle: task.notes || 'Custom farm task',
+        subtitle: comp.notes || task.notes || 'Custom farm task',
         zoneOrDetail: task.category.replace('_', ' '),
         dueDate: selectedDate,
         daysOverdue: 0,
-        urgency: 'done',
+        urgency: pending ? 'pending_confirmation' : 'done',
         assigneeId: task.assigneeId,
         assigneeName: comp.assignedMemberName || getMemberName(members, task.assigneeId),
         assigneeUid: task.assigneeUid,
-        isDoneForDay: true,
+        isDoneForDay: !pending,
+        isPendingConfirmation: pending,
         completionLog: comp,
         cadenceLabel: task.recurrenceDays > 0 ? `Every ${task.recurrenceDays}d` : 'One-time',
       });
@@ -359,10 +481,11 @@ export function buildDailySchedule(params: {
       const overdueDays = Math.max(0, diffDays(effectiveDue, selectedDate));
       activities.push({
         key: `custom:${task.id}:${selectedDate}`,
+        farmArea: area,
         taskType: 'custom',
         sourceId: task.id,
         title: task.title,
-        subtitle: task.notes || 'Scheduled farm duty',
+        subtitle: task.notes || 'Custom farm task',
         zoneOrDetail: task.category.replace('_', ' '),
         dueDate: effectiveDue,
         daysOverdue: overdueDays,
@@ -371,24 +494,26 @@ export function buildDailySchedule(params: {
         assigneeName: getMemberName(members, task.assigneeId),
         assigneeUid: task.assigneeUid,
         isDoneForDay: false,
+        isPendingConfirmation: false,
         cadenceLabel: task.recurrenceDays > 0 ? `Every ${task.recurrenceDays}d` : 'One-time',
       });
     }
   }
 
-  // Sort: Overdue first, then Due Today (Fish Tank first, then Water, Mulch, Prune, Custom), then Done
   const urgencyRank: Record<ScheduledActivity['urgency'], number> = {
-    overdue: 0,
-    due_today: 1,
-    upcoming: 2,
-    done: 3,
+    pending_confirmation: 0,
+    overdue: 1,
+    due_today: 2,
+    upcoming: 3,
+    done: 4,
   };
   const typeRank: Record<ScheduledActivity['taskType'], number> = {
     fish_tank: 0,
-    water: 1,
-    mulch: 2,
-    prune: 3,
-    custom: 4,
+    animal: 1,
+    water: 2,
+    mulch: 3,
+    prune: 4,
+    custom: 5,
   };
 
   return activities.sort((a, b) => {
